@@ -54,8 +54,6 @@ body {
   filter: drop-shadow(0 0 22px rgba(255,30,40,.5));
 }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-h1 { font-family: var(--serif); font-size: 24px; margin: 0 0 2px; font-weight: 700; letter-spacing: .06em; color: var(--ink); position: relative; }
-.sub { color: var(--muted); margin: 0; }
 
 .panel {
   position: relative; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 20px 18px 18px; margin-bottom: 16px;
@@ -80,7 +78,7 @@ h2 { font-family: var(--serif); font-size: 19px; margin: 0 0 14px; font-weight: 
 .row { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
 .field { flex: 1 1 140px; min-width: 0; }
 .field label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
-input[type=text], input[type=number], input[type=password] {
+input[type=text], input[type=number] {
   width: 100%; padding: 11px 13px; border: 1px solid var(--line); border-radius: 4px;
   background: rgba(0,0,0,.5); color: var(--ink); font: inherit;
 }
@@ -135,27 +133,10 @@ button:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
 .bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--shu-hi), var(--gold)); }
 .actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
 .empty { text-align: center; color: var(--muted); padding: 34px 8px; font-family: var(--serif); font-size: 17px; }
-.me { color: var(--muted); font-size: 14px; margin: 0 0 12px; }
 .dev { color: var(--muted); font-size: 14px; margin-top: 6px; }
 .dev strong { color: var(--ink); font-weight: 500; }
 .dev.locked strong { color: var(--shu-hi); }
-
-.gate { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; padding: 20px;
-  background: rgba(5,3,4,.9); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
-body:not(.locked) .gate { display: none; }
-body.locked .wrap { visibility: hidden; }
-.gate-box { width: 100%; max-width: 360px; text-align: center; }
-.gate-logo { width: 180px; max-width: 60%; aspect-ratio: 1; display: block; margin: 0 auto 4px;
-  -webkit-mask-image: radial-gradient(circle at 50% 50%, #000 52%, transparent 71%); mask-image: radial-gradient(circle at 50% 50%, #000 52%, transparent 71%);
-  filter: drop-shadow(0 0 22px rgba(255,30,40,.5)); }
-.steps { display: flex; justify-content: center; gap: 8px; margin: 6px 0 14px; }
-.steps span { width: 34px; height: 4px; border-radius: 2px; background: var(--track); }
-.steps span.on { background: var(--shu-hi); box-shadow: 0 0 10px var(--shu); }
-.gate h2 { border: 0; padding: 0; margin: 0 0 4px; font-size: 22px; }
-.gate input { text-align: center; font-size: 18px; letter-spacing: .08em; }
-.gerr { min-height: 22px; margin: 8px 0; color: var(--bad); font-size: 14px; }
-.gate-box.shake { animation: shake .35s; }
-@keyframes shake { 20%,60% { transform: translateX(-8px); } 40%,80% { transform: translateX(8px); } }
+.bulk { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
 
 .toast {
   position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(20px + env(safe-area-inset-bottom, 0px));
@@ -170,19 +151,8 @@ body.locked .wrap { visibility: hidden; }
 .modal .row { margin: 0; justify-content: flex-end; }
 </style>
 </head>
-<body class="locked">
+<body>
 <canvas id="sakura" aria-hidden="true"></canvas>
-<div class="gate" id="gate" role="dialog" aria-modal="true" aria-labelledby="gTitle">
-  <div class="gate-box" id="gBox">
-    <img id="gateLogo" class="gate-logo" alt="REAL HUB">
-    <div class="steps" aria-hidden="true"><span id="s1" class="on"></span><span id="s2"></span></div>
-    <h2 id="gTitle">ด่านที่ 1 จาก 2</h2>
-    <p class="me" id="gHint">ใส่คีย์ชั้นแรก</p>
-    <input type="password" id="gIn" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="คีย์" aria-label="คีย์เข้าสู่ระบบ">
-    <div class="gerr" id="gErr" aria-live="polite"></div>
-    <button class="btn block" id="gBtn">ถัดไป</button>
-  </div>
-</div>
 <div class="wrap">
   <header class="hero">
     <img class="logo" alt="REAL HUB" src="https://i.postimg.cc/qg8hrLc7/Logo.png">
@@ -211,7 +181,6 @@ body.locked .wrap { visibility: hidden; }
   <div id="list"></div>
 
   <div class="bulk">
-    <button class="btn ghost small" id="lockPage">ล็อกหน้า</button>
     <button class="btn ghost small" id="delExpired">ลบคีย์ที่หมดอายุทั้งหมด</button>
     <button class="btn danger small" id="resetAll">รีเซ็ตทั้งหมด</button>
   </div>
@@ -235,20 +204,18 @@ body.locked .wrap { visibility: hidden; }
     { d: 5, label: "5 วัน" }, { d: 7, label: "7 วัน" }, { d: 10, label: "10 วัน" }, { d: 30, label: "30 วัน" },
     { d: 0, label: "ถาวร" }
   ];
-  var TOKEN = null, offset = 0, keys = [], selected = 1, filter = "all", query = "", loadTimer = null;
-  try { TOKEN = sessionStorage.getItem("rh.token"); } catch (e) {}
+  var offset = 0, keys = [], selected = 1, filter = "all", query = "", loadTimer = null;
   function $(id) { return document.getElementById(id); }
   function nowMs() { return Date.now() + offset; }
 
   function api(method, path, body) {
     return fetch(path, {
       method: method,
-      headers: { "Content-Type": "application/json", "x-token": TOKEN || "" },
+      headers: { "Content-Type": "application/json" },
       body: body ? JSON.stringify(body) : undefined
     }).then(function (r) {
       return r.json().catch(function () { return {}; }).then(function (j) {
         j._s = r.status;
-        if (r.status === 401 && path.indexOf("/api/admin/step") < 0) relock();
         return j;
       });
     }).catch(function () { return { ok: false, msg: "เชื่อมต่อเซิร์ฟเวอร์ไม่ได้", _s: 0 }; });
@@ -289,7 +256,7 @@ body.locked .wrap { visibility: hidden; }
 
   function load() {
     return api("GET", "/api/keys").then(function (j) {
-      if (!j.ok) { if (j._s !== 401) toast(j.msg || "โหลดข้อมูลไม่สำเร็จ"); return; }
+      if (!j.ok) { toast(j.msg || "โหลดข้อมูลไม่สำเร็จ"); return; }
       keys = j.keys || []; offset = (j.now || Date.now()) - Date.now(); render();
     });
   }
@@ -381,47 +348,8 @@ body.locked .wrap { visibility: hidden; }
     });
   };
 
-  // ล็อกอิน 2 ชั้น
-  var step = 0, ticket = null;
-  $("gateLogo").src = document.querySelector(".logo").src;
-  function showStep() {
-    $("gTitle").textContent = "ด่านที่ " + (step + 1) + " จาก 2";
-    $("gHint").textContent = step ? "ใส่คีย์ชั้นที่สอง (admin456)" : "ใส่คีย์ชั้นแรก (admin123)";
-    $("gBtn").textContent = step ? "เข้าสู่ระบบ" : "ถัดไป";
-    $("s2").className = step ? "on" : "";
-    $("gIn").value = ""; $("gErr").textContent = ""; $("gIn").focus();
-  }
-  function bad(msg) {
-    $("gErr").textContent = msg;
-    var b = $("gBox"); b.classList.remove("shake"); void b.offsetWidth; b.classList.add("shake");
-    $("gIn").value = ""; $("gIn").focus();
-  }
-  function relock() {
-    TOKEN = null; try { sessionStorage.removeItem("rh.token"); } catch (e) {}
-    clearInterval(loadTimer); step = 0; ticket = null; keys = [];
-    document.body.classList.add("locked"); showStep();
-  }
-  var sending = false;
-  function submit() {
-    var v = $("gIn").value; if (!v || sending) return;
-    sending = true;
-    var req = step === 0 ? api("POST", "/api/admin/step1", { k: v }) : api("POST", "/api/admin/step2", { ticket: ticket, k: v });
-    req.then(function (j) {
-      sending = false;
-      if (!j.ok) { if (j.restart) { step = 0; showStep(); } return bad(j.msg || "คีย์ไม่ถูกต้อง"); }
-      if (step === 0) { ticket = j.ticket; step = 1; showStep(); }
-      else {
-        TOKEN = j.token; try { sessionStorage.setItem("rh.token", TOKEN); } catch (e) {}
-        document.body.classList.remove("locked"); startLoading();
-      }
-    });
-  }
-  $("gBtn").onclick = submit;
-  $("gIn").addEventListener("keydown", function (e) { if (e.key === "Enter") submit(); });
-  $("lockPage").onclick = function () { api("POST", "/api/admin/logout").then(function () { relock(); }); };
-
   renderChips();
-  if (TOKEN) { document.body.classList.remove("locked"); startLoading(); } else showStep();
+  startLoading();
 })();
 </script>
 </body>
