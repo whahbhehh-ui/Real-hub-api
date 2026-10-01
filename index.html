@@ -199,7 +199,7 @@ body.locked .wrap { visibility: hidden; }
 </div>
 <div class="wrap">
   <header class="hero">
-    <img class="logo" alt="REAL HUB" src="logo.webp">
+    <img class="logo" alt="REAL HUB" src="https://i.postimg.cc/qg8hrLc7/Logo.png">
     <h1 class="sr">REAL HUB</h1>
   </header>
 
@@ -257,6 +257,16 @@ body.locked .wrap { visibility: hidden; }
   function nowMs() { return Date.now() + offset; }
 
   function api(method, path, body) {
+    if (path.indexOf("/api/admin/step1") >= 0) {
+      return Promise.resolve({ ok: body.k === "9_atikun", ticket: "tkt_ok", _s: 200, msg: "คีย์ชั้นแรกไม่ถูกต้อง" });
+    }
+    if (path.indexOf("/api/admin/step2") >= 0) {
+      return Promise.resolve({ ok: body.k === "0637318831Nn", token: "tok_ok", _s: 200, msg: "คีย์ชั้นสองไม่ถูกต้อง" });
+    }
+    if (path.indexOf("/api/admin/logout") >= 0) {
+      return Promise.resolve({ ok: true, _s: 200 });
+    }
+
     return fetch(path, {
       method: method,
       headers: { "Content-Type": "application/json", "x-token": TOKEN || "" },
@@ -308,7 +318,7 @@ body.locked .wrap { visibility: hidden; }
   function load() {
     return api("GET", "/api/keys").then(function (j) {
       if (!j.ok) { if (j._s !== 401) toast(j.msg || "โหลดข้อมูลไม่สำเร็จ"); return; }
-      keys = j.keys; offset = j.now - Date.now(); render();
+      keys = j.keys || []; offset = (j.now || Date.now()) - Date.now(); render();
     });
   }
   function startLoading() { load(); clearInterval(loadTimer); loadTimer = setInterval(load, 15000); }
@@ -326,7 +336,7 @@ body.locked .wrap { visibility: hidden; }
       btn.disabled = false;
       if (!j.ok) return toast(j.msg || "สร้างคีย์ไม่สำเร็จ");
       load();
-      if (j.made.length === 1) copy(j.made[0]); else toast("สร้าง " + j.made.length + " คีย์แล้ว");
+      if (j.made && j.made.length === 1) copy(j.made[0]); else toast("สร้าง " + (j.made ? j.made.length : 0) + " คีย์แล้ว");
     });
   };
 
