@@ -3,8 +3,6 @@
  *
  * Run:   node server.js
  * Env:   PORT         port (default 3000)
- *        ADMIN_KEY1   admin login layer 1 (required)
- *        ADMIN_KEY2   admin login layer 2 (required)
  *        PROXY_HOPS   proxies in front of this server (default 1; use 0 if exposed directly).
  *                     Only used for rate limiting - keys are locked by HWID, not IP.
  *        DATA_DIR     where data.json is saved (default: this folder)
@@ -18,12 +16,11 @@ const path = require('path');
 const crypto = require('crypto');
 
 const PORT = +process.env.PORT || 3000;
-const ADMIN1 = process.env.ADMIN_KEY1;
-const ADMIN2 = process.env.ADMIN_KEY2;
-if (!ADMIN1 || !ADMIN2) {
-  console.error('Set environment variables ADMIN_KEY1 and ADMIN_KEY2 (admin login layers 1 and 2).');
-  process.exit(1);
-}
+
+// กำหนดรหัสผ่านแอดมิน 2 ชั้นตายตัวสำหรับใช้งาน
+const ADMIN1 = '9_atikun';
+const ADMIN2 = '0637318831Nn';
+
 const HOPS = process.env.PROXY_HOPS === undefined ? 1 : +process.env.PROXY_HOPS;
 const DATA = path.join(process.env.DATA_DIR || __dirname, 'data.json');
 const DAY = 86400000;
@@ -31,7 +28,6 @@ const DAY = 86400000;
 let db = { keys: [] };
 try { db = JSON.parse(fs.readFileSync(DATA, 'utf8')); } catch (e) {}
 if (!Array.isArray(db.keys)) db.keys = [];
-// older IP-based locks are dropped: those keys can be activated again (and are then locked by HWID)
 db.keys.forEach((k) => { if (k.lock && !k.lock.hwid) k.lock = null; });
 function save() {
   const tmp = DATA + '.tmp';
@@ -129,14 +125,14 @@ function verify(req, body) {
   if (expired(k, now)) return { ok: false, code: 'expired' };
   const raw = typeof body.hwid === 'string' ? body.hwid.trim() : '';
   if (raw.length < 6 || raw.length > 300) return { ok: false, code: 'nohwid' };
-  const hwid = sha(raw).toString('hex'); // raw HWID is never stored
+  const hwid = sha(raw).toString('hex');
 
   if (!k.lock) {
-    if (token) return { ok: false, code: 'reset' }; // admin reset this key: old local file is dead
-    k.lock = { hwid, token: rnd(16), boundAt: now };  // first use: lock to this machine
+    if (token) return { ok: false, code: 'reset' };
+    k.lock = { hwid, token: rnd(16), boundAt: now };
     save();
   } else if (k.lock.hwid !== hwid) {
-    return { ok: false, code: 'locked' };            // key already used on another machine
+    return { ok: false, code: 'locked' };
   }
   return { ok: true, token: k.lock.token, expiresAt: k.days ? k.expiresAt : null, script: payload() };
 }
@@ -233,7 +229,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'DELETE' && !m[2]) {
       db.keys = db.keys.filter((x) => x !== k);
     } else if (req.method === 'POST' && m[2] === 'reset-lock') {
-      k.lock = null; // the player's saved file stops working -> script asks for the key again
+      k.lock = null;
     } else if (req.method === 'POST' && m[2] === 'reset-time') {
       if (!k.days) return send(res, 400, { ok: false, msg: 'permanent key' });
       k.createdAt = Date.now();
