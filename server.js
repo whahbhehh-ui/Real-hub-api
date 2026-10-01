@@ -1,244 +1,141 @@
-/*
- * REAL HUB key server (no dependencies, Node 16+)
- *
- * Run:   node server.js
- * Env:   PORT         port (default 3000)
- *        PROXY_HOPS   proxies in front of this server (default 1; use 0 if exposed directly).
- *                     Only used for rate limiting - keys are locked by HWID, not IP.
- *        DATA_DIR     where data.json is saved (default: this folder)
- *
- * Files: index.html + logo.webp (admin page), payload.lua (your real script, only sent to valid keys)
- */
-'use strict';
-const http = require('http');
-const fs = require('fs');
-const path = require('path');
+const express = require('express');
 const crypto = require('crypto');
+const app = express();
+const PORT = process.env.PORT || 3000;
 
-const PORT = +process.env.PORT || 3000;
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-// กำหนดรหัสผ่านแอดมิน 2 ชั้นตายตัวสำหรับใช้งาน
-const ADMIN1 = '9_atikun';
-const ADMIN2 = '0637318831Nn';
+// ฐานข้อมูลจำลองสำหรับเก็บคีย์และ Token
+let keys = [];
+let sessions = {};
+let pendingTickets = {};
 
-const HOPS = process.env.PROXY_HOPS === undefined ? 1 : +process.env.PROXY_HOPS;
-const DATA = path.join(process.env.DATA_DIR || __dirname, 'data.json');
-const DAY = 86400000;
+// ตั้งค่ารหัสผ่านล็อกอิน 2 ชั้น (เปลี่ยนตรงนี้ได้ตามต้องการ)
+const STEP1_KEY = "admin123";
+const STEP2_KEY = "admin456";
 
-let db = { keys: [] };
-try { db = JSON.parse(fs.readFileSync(DATA, 'utf8')); } catch (e) {}
-if (!Array.isArray(db.keys)) db.keys = [];
-db.keys.forEach((k) => { if (k.lock && !k.lock.hwid) k.lock = null; });
-function save() {
-  const tmp = DATA + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(db));
-  fs.renameSync(tmp, DATA);
+// Middleware เช็คสิทธิ์ Admin
+function authAdmin(req, res, next) {
+  const token = req.headers['x-token'];
+  if (token && sessions[token]) {
+    return next();
+  }
+  return res.status(401).json({ ok: false, msg: "Unauthorized" });
 }
 
-const sha = (s) => crypto.createHash('sha256').update(String(s)).digest();
-const same = (a, b) => crypto.timingSafeEqual(sha(a), sha(b));
-const rnd = (n) => crypto.randomBytes(n).toString('hex');
-const ALPHA = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-function genKey() {
-  for (;;) {
-    const b = crypto.randomBytes(16);
-    let s = '';
-    for (let i = 0; i < 16; i++) {
-      s += ALPHA[b[i] % 32];
-      if (i % 4 === 3 && i < 15) s += '-';
-    }
-    if (!db.keys.some((k) => k.key === s)) return s;
-  }
-}
+// ---------------- API ล็อกอิน 2 ชั้น ----------------
 
-function getIP(req) {
-  let ip = req.socket.remoteAddress || '';
-  if (HOPS > 0) {
-    const xs = String(req.headers['x-forwarded-for'] || '').split(',').map((x) => x.trim()).filter(Boolean);
-    if (xs.length) ip = xs[Math.max(0, xs.length - HOPS)];
+// ด่านที่ 1
+app.post('/api/admin/step1', (req, res) => {
+  const { k } = req.body;
+  if (k === STEP1_KEY) {
+    const ticket = crypto.randomBytes(16).toString('hex');
+    pendingTickets[ticket] = true;
+    setTimeout(() => delete pendingTickets[ticket], 60000); // Ticket หมดอายุใน 1 นาที
+    return res.json({ ok: true, ticket: ticket });
   }
-  return ip.replace(/^::ffff:/, '');
-}
-
-// simple rate limiter
-const buckets = new Map();
-function limited(name, ip, max, windowMs) {
-  const id = name + '|' + ip, now = Date.now();
-  let b = buckets.get(id);
-  if (!b || now > b.reset) b = { n: 0, reset: now + windowMs };
-  b.n++;
-  buckets.set(id, b);
-  return b.n > max;
-}
-setInterval(() => { const now = Date.now(); for (const [k, b] of buckets) if (now > b.reset) buckets.delete(k); }, 60000).unref();
-
-// admin sessions
-const tickets = new Map(); // after layer 1
-const sessions = new Map(); // after layer 2
-function cleanup() {
-  const now = Date.now();
-  for (const [k, v] of tickets) if (now > v) tickets.delete(k);
-  for (const [k, v] of sessions) if (now > v) sessions.delete(k);
-}
-setInterval(cleanup, 60000).unref();
-function isAdmin(req) {
-  const t = req.headers['x-token'];
-  const exp = t && sessions.get(t);
-  return !!exp && Date.now() < exp;
-}
-
-function send(res, code, obj) {
-  const body = JSON.stringify(obj);
-  res.writeHead(code, {
-    'Content-Type': 'application/json; charset=utf-8',
-    'Cache-Control': 'no-store',
-    'X-Content-Type-Options': 'nosniff',
-  });
-  res.end(body);
-}
-function readBody(req) {
-  return new Promise((resolve) => {
-    let d = '';
-    req.on('data', (c) => { d += c; if (d.length > 20000) req.destroy(); });
-    req.on('end', () => { try { resolve(JSON.parse(d || '{}')); } catch (e) { resolve({}); } });
-    req.on('error', () => resolve({}));
-  });
-}
-const clean = (k) => ({
-  id: k.id, key: k.key, days: k.days, note: k.note, createdAt: k.createdAt, expiresAt: k.expiresAt,
-  lock: k.lock ? { id: k.lock.hwid.slice(0, 12).toUpperCase(), boundAt: k.lock.boundAt } : null,
-});
-const expired = (k, now) => k.days > 0 && now >= k.expiresAt;
-
-function payload() {
-  try { return fs.readFileSync(path.join(__dirname, 'payload.lua'), 'utf8'); } catch (e) { return 'warn("payload.lua missing on server")'; }
-}
-
-// ---------- key check used by the Lua client ----------
-function verify(req, body) {
-  const key = String(body.key || '').trim().toUpperCase();
-  const token = body.token ? String(body.token) : '';
-  if (!key) return { ok: false, code: 'invalid' };
-  const k = db.keys.find((x) => x.key === key);
-  if (!k) return { ok: false, code: 'invalid' };
-  const now = Date.now();
-  if (expired(k, now)) return { ok: false, code: 'expired' };
-  const raw = typeof body.hwid === 'string' ? body.hwid.trim() : '';
-  if (raw.length < 6 || raw.length > 300) return { ok: false, code: 'nohwid' };
-  const hwid = sha(raw).toString('hex');
-
-  if (!k.lock) {
-    if (token) return { ok: false, code: 'reset' };
-    k.lock = { hwid, token: rnd(16), boundAt: now };
-    save();
-  } else if (k.lock.hwid !== hwid) {
-    return { ok: false, code: 'locked' };
-  }
-  return { ok: true, token: k.lock.token, expiresAt: k.days ? k.expiresAt : null, script: payload() };
-}
-
-const server = http.createServer(async (req, res) => {
-  const url = new URL(req.url, 'http://x');
-  const p = url.pathname;
-  const ip = getIP(req);
-
-  if (req.method === 'GET' && (p === '/' || p === '/index.html')) {
-    fs.readFile(path.join(__dirname, 'index.html'), (err, buf) => {
-      if (err) { res.writeHead(500); return res.end('index.html missing'); }
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
-      res.end(buf);
-    });
-    return;
-  }
-  if (req.method === 'GET' && p === '/logo.webp') {
-    fs.readFile(path.join(__dirname, 'logo.webp'), (err, buf) => {
-      if (err) { res.writeHead(404); return res.end(); }
-      res.writeHead(200, { 'Content-Type': 'image/webp', 'Cache-Control': 'public, max-age=86400' });
-      res.end(buf);
-    });
-    return;
-  }
-  if (!p.startsWith('/api/')) { res.writeHead(404); return res.end('Not found'); }
-
-  // ----- public: used by the Roblox script -----
-  if (req.method === 'POST' && p === '/api/verify') {
-    if (limited('verify', ip, 60, 60000)) return send(res, 429, { ok: false, code: 'rate' });
-    return send(res, 200, verify(req, await readBody(req)));
-  }
-
-  // ----- admin login (2 layers) -----
-  if (req.method === 'POST' && p === '/api/admin/step1') {
-    if (limited('login', ip, 10, 600000)) return send(res, 429, { ok: false, msg: 'ลองผิดหลายครั้ง รอ 10 นาที' });
-    const b = await readBody(req);
-    if (!same(b.k || '', ADMIN1)) return send(res, 200, { ok: false, msg: 'คีย์ชั้นแรกไม่ถูกต้อง' });
-    const ticket = rnd(24);
-    tickets.set(ticket, Date.now() + 5 * 60000);
-    return send(res, 200, { ok: true, ticket });
-  }
-  if (req.method === 'POST' && p === '/api/admin/step2') {
-    if (limited('login', ip, 10, 600000)) return send(res, 429, { ok: false, msg: 'ลองผิดหลายครั้ง รอ 10 นาที' });
-    const b = await readBody(req);
-    const exp = tickets.get(b.ticket);
-    if (!exp || Date.now() > exp) return send(res, 200, { ok: false, msg: 'หมดเวลา กลับไปด่านที่ 1', restart: true });
-    if (!same(b.k || '', ADMIN2)) return send(res, 200, { ok: false, msg: 'คีย์ชั้นสองไม่ถูกต้อง' });
-    tickets.delete(b.ticket);
-    const token = rnd(32);
-    sessions.set(token, Date.now() + 12 * 3600000);
-    return send(res, 200, { ok: true, token });
-  }
-
-  // ----- everything below needs admin -----
-  if (!isAdmin(req)) return send(res, 401, { ok: false, msg: 'unauthorized' });
-
-  if (req.method === 'POST' && p === '/api/admin/logout') {
-    sessions.delete(req.headers['x-token']);
-    return send(res, 200, { ok: true });
-  }
-  if (req.method === 'GET' && p === '/api/keys') {
-    return send(res, 200, { ok: true, now: Date.now(), keys: db.keys.map(clean) });
-  }
-  if (req.method === 'POST' && p === '/api/keys') {
-    const b = await readBody(req);
-    const days = [0, 1, 2, 3, 4, 5, 7, 10, 30].includes(+b.days) ? +b.days : 1;
-    const qty = Math.max(1, Math.min(100, parseInt(b.qty, 10) || 1));
-    const note = String(b.note || '').slice(0, 60);
-    const now = Date.now(), made = [];
-    for (let i = 0; i < qty; i++) {
-      const k = { id: rnd(8), key: genKey(), days, note, createdAt: now, expiresAt: days ? now + days * DAY : null, lock: null };
-      db.keys.unshift(k);
-      made.push(k.key);
-    }
-    save();
-    return send(res, 200, { ok: true, made });
-  }
-  if (req.method === 'POST' && p === '/api/keys/delete-expired') {
-    const now = Date.now(), before = db.keys.length;
-    db.keys = db.keys.filter((k) => !expired(k, now));
-    save();
-    return send(res, 200, { ok: true, removed: before - db.keys.length });
-  }
-  if (req.method === 'DELETE' && p === '/api/keys') {
-    db.keys = [];
-    save();
-    return send(res, 200, { ok: true });
-  }
-  const m = p.match(/^\/api\/keys\/([a-f0-9]+)(?:\/(reset-lock|reset-time))?$/);
-  if (m) {
-    const k = db.keys.find((x) => x.id === m[1]);
-    if (!k) return send(res, 404, { ok: false, msg: 'not found' });
-    if (req.method === 'DELETE' && !m[2]) {
-      db.keys = db.keys.filter((x) => x !== k);
-    } else if (req.method === 'POST' && m[2] === 'reset-lock') {
-      k.lock = null;
-    } else if (req.method === 'POST' && m[2] === 'reset-time') {
-      if (!k.days) return send(res, 400, { ok: false, msg: 'permanent key' });
-      k.createdAt = Date.now();
-      k.expiresAt = k.createdAt + k.days * DAY;
-    } else return send(res, 405, { ok: false });
-    save();
-    return send(res, 200, { ok: true });
-  }
-  send(res, 404, { ok: false });
+  return res.status(400).json({ ok: false, msg: "คีย์ชั้นแรกไม่ถูกต้อง" });
 });
 
-server.listen(PORT, () => console.log('REAL HUB key server on :' + PORT));
+// ด่านที่ 2
+app.post('/api/admin/step2', (req, res) => {
+  const { ticket, k } = req.body;
+  if (!ticket || !pendingTickets[ticket]) {
+    return res.status(400).json({ ok: false, msg: "Ticket หมดอายุหรือ, กรุณาเริ่มใหม่", restart: true });
+  }
+  if (k === STEP2_KEY) {
+    delete pendingTickets[ticket];
+    const token = crypto.randomBytes(24).toString('hex');
+    sessions[token] = true;
+    return res.json({ ok: true, token: token });
+  }
+  return res.status(400).json({ ok: false, msg: "คีย์ชั้นสองไม่ถูกต้อง" });
+});
+
+// ออกจากระบบ / ล็อกหน้า
+app.post('/api/admin/logout', authAdmin, (req, res) => {
+  const token = req.headers['x-token'];
+  if (token) delete sessions[token];
+  return res.json({ ok: true });
+});
+
+// ---------------- API จัดการคีย์ ----------------
+
+// ดึงรายการคีย์ทั้งหมด
+app.get('/api/keys', authAdmin, (req, res) => {
+  return res.json({ ok: true, keys: keys, now: Date.now() });
+});
+
+// สร้างคีย์ใหม่
+app.post('/api/keys', authAdmin, (req, res) => {
+  const { days, qty, note } = req.body;
+  const count = parseInt(qty, 10) || 1;
+  const parsedDays = parseInt(days, 10);
+  const made = [];
+
+  for (let i = 0; i < count; i++) {
+    const keyString = "REAL-" + crypto.randomBytes(4).toString('hex').toUpperCase() + "-" + crypto.randomBytes(4).toString('hex').toUpperCase();
+    const createdAt = Date.now();
+    const expiresAt = parsedDays > 0 ? createdAt + (parsedDays * 24 * 60 * 60 * 1000) : 0;
+
+    const newKey = {
+      id: crypto.randomBytes(8).toString('hex'),
+      key: keyString,
+      days: parsedDays,
+      createdAt: createdAt,
+      expiresAt: expiresAt,
+      note: note || "",
+      lock: null
+    };
+
+    keys.push(newKey);
+    made.push(keyString);
+  }
+
+  return res.json({ ok: true, made: made });
+});
+
+// ลบคีย์เดี่ยว
+app.delete('/api/keys/:id', authAdmin, (req, res) => {
+  const id = req.params.id;
+  keys = keys.filter(k => k.id !== id);
+  return res.json({ ok: true });
+});
+
+// รีเซ็ตล็อก HWID
+app.post('/api/keys/:id/reset-lock', authAdmin, (req, res) => {
+  const id = req.params.id;
+  const key = keys.find(k => k.id === id);
+  if (key) key.lock = null;
+  return res.json({ ok: true });
+});
+
+// รีเซ็ตเวลาคีย์
+app.post('/api/keys/:id/reset-time', authAdmin, (req, res) => {
+  const id = req.params.id;
+  const key = keys.find(k => k.id === id);
+  if (key && key.days > 0) {
+    key.createdAt = Date.now();
+    key.expiresAt = key.createdAt + (key.days * 24 * 60 * 60 * 1000);
+  }
+  return res.json({ ok: true });
+});
+
+// ลบคีย์ที่หมดอายุทั้งหมด
+app.post('/api/keys/delete-expired', authAdmin, (req, res) => {
+  const now = Date.now();
+  keys = keys.filter(k => k.days === 0 || k.expiresAt > now);
+  return res.json({ ok: true });
+});
+
+// รีเซ็ตระบบทั้งหมด (ลบทุกคีย์)
+app.delete('/api/keys', authAdmin, (req, res) => {
+  keys = [];
+  return res.json({ ok: true });
+});
+
+// เริ่มต้นรันเซิร์ฟเวอร์
+app.listen(PORT, () => {
+  console.log(`Server is running on port ${PORT}`);
+});
