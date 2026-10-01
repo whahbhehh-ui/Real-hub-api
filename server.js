@@ -170,7 +170,7 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'POST' && p === '/api/admin/step1') {
     if (limited('login', ip, 10, 600000)) return send(res, 429, { ok: false, msg: 'ลองผิดหลายครั้ง รอ 10 นาที' });
     const b = await readBody(req);
-    if (!same(b.k || '', ADMIN1)) return send(res, 401, { ok: false, msg: 'คีย์ไม่ถูกต้อง' });
+    if (!same(b.k || '', ADMIN1)) return send(res, 200, { ok: false, msg: 'คีย์ชั้นแรกไม่ถูกต้อง' });
     const ticket = rnd(24);
     tickets.set(ticket, Date.now() + 5 * 60000);
     return send(res, 200, { ok: true, ticket });
@@ -179,8 +179,8 @@ const server = http.createServer(async (req, res) => {
     if (limited('login', ip, 10, 600000)) return send(res, 429, { ok: false, msg: 'ลองผิดหลายครั้ง รอ 10 นาที' });
     const b = await readBody(req);
     const exp = tickets.get(b.ticket);
-    if (!exp || Date.now() > exp) return send(res, 401, { ok: false, msg: 'หมดเวลา กลับไปด่านที่ 1', restart: true });
-    if (!same(b.k || '', ADMIN2)) return send(res, 401, { ok: false, msg: 'คีย์ไม่ถูกต้อง' });
+    if (!exp || Date.now() > exp) return send(res, 200, { ok: false, msg: 'หมดเวลา กลับไปด่านที่ 1', restart: true });
+    if (!same(b.k || '', ADMIN2)) return send(res, 200, { ok: false, msg: 'คีย์ชั้นสองไม่ถูกต้อง' });
     tickets.delete(b.ticket);
     const token = rnd(32);
     sessions.set(token, Date.now() + 12 * 3600000);
