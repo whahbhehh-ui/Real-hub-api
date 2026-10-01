@@ -256,17 +256,8 @@ body.locked .wrap { visibility: hidden; }
   function $(id) { return document.getElementById(id); }
   function nowMs() { return Date.now() + offset; }
 
+  // เชื่อมต่อ API กับ server.js จริงโดยตรง (เอาตัวจำลองออกแล้ว)
   function api(method, path, body) {
-    if (path.indexOf("/api/admin/step1") >= 0) {
-      return Promise.resolve({ ok: body.k === "9_atikun", ticket: "tkt_ok", _s: 200, msg: "คีย์ชั้นแรกไม่ถูกต้อง" });
-    }
-    if (path.indexOf("/api/admin/step2") >= 0) {
-      return Promise.resolve({ ok: body.k === "0637318831Nn", token: "tok_ok", _s: 200, msg: "คีย์ชั้นสองไม่ถูกต้อง" });
-    }
-    if (path.indexOf("/api/admin/logout") >= 0) {
-      return Promise.resolve({ ok: true, _s: 200 });
-    }
-
     return fetch(path, {
       method: method,
       headers: { "Content-Type": "application/json", "x-token": TOKEN || "" },
@@ -409,7 +400,6 @@ body.locked .wrap { visibility: hidden; }
     });
   };
 
-  // live countdown; re-render when a key changes status
   setInterval(function () {
     if (document.body.classList.contains("locked")) return;
     var now = nowMs(), changed = false, cards = document.querySelectorAll(".key");
@@ -516,7 +506,6 @@ body.locked .wrap { visibility: hidden; }
   }
   size(); window.addEventListener("resize", size); frame();
 })();
-
 </script>
 </body>
 </html>
