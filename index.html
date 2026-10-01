@@ -80,7 +80,7 @@ h2 { font-family: var(--serif); font-size: 19px; margin: 0 0 14px; font-weight: 
 .row { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
 .field { flex: 1 1 140px; min-width: 0; }
 .field label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
-input[type=text], input[type=number] {
+input[type=text], input[type=number], input[type=password] {
   width: 100%; padding: 11px 13px; border: 1px solid var(--line); border-radius: 4px;
   background: rgba(0,0,0,.5); color: var(--ink); font: inherit;
 }
@@ -118,10 +118,6 @@ button:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
   -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); box-shadow: 0 8px 28px rgba(0,0,0,.5);
 }
 .key::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 6px; background: var(--c); box-shadow: 0 0 14px var(--c); }
-.key::after {
-  content: ""; position: absolute; right: -26px; top: -26px; width: 80px; height: 80px; border-radius: 50%;
-  border: 1px solid var(--c); opacity: .22; box-shadow: 0 0 0 10px transparent, inset 0 0 0 10px transparent;
-}
 .key.active { --c: var(--ok); } .key.expired { --c: var(--bad); } .key.permanent { --c: var(--perm); }
 .key.expired .code { text-decoration: line-through; text-decoration-color: var(--bad); color: var(--muted); }
 .top { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -139,16 +135,11 @@ button:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
 .bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--shu-hi), var(--gold)); }
 .actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
 .empty { text-align: center; color: var(--muted); padding: 34px 8px; font-family: var(--serif); font-size: 17px; }
-.result { margin-top: 12px; padding: 11px 14px; border-radius: 4px; font-weight: 500; border: 1px solid currentColor; }
-.result.active { background: var(--ok-bg); color: var(--ok); }
-.result.expired { background: var(--bad-bg); color: var(--bad); }
-.result.permanent { background: var(--perm-bg); color: var(--perm); }
-.result.none { background: rgba(255,255,255,.04); color: var(--muted); border-color: var(--line); }
 .me { color: var(--muted); font-size: 14px; margin: 0 0 12px; }
-.me strong { color: var(--ink); font-weight: 500; }
 .dev { color: var(--muted); font-size: 14px; margin-top: 6px; }
 .dev strong { color: var(--ink); font-weight: 500; }
 .dev.locked strong { color: var(--shu-hi); }
+
 .gate { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; padding: 20px;
   background: rgba(5,3,4,.9); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
 body:not(.locked) .gate { display: none; }
@@ -161,13 +152,10 @@ body.locked .wrap { visibility: hidden; }
 .steps span { width: 34px; height: 4px; border-radius: 2px; background: var(--track); }
 .steps span.on { background: var(--shu-hi); box-shadow: 0 0 10px var(--shu); }
 .gate h2 { border: 0; padding: 0; margin: 0 0 4px; font-size: 22px; }
-.gate .me { margin-bottom: 14px; }
 .gate input { text-align: center; font-size: 18px; letter-spacing: .08em; }
 .gerr { min-height: 22px; margin: 8px 0; color: var(--bad); font-size: 14px; }
 .gate-box.shake { animation: shake .35s; }
 @keyframes shake { 20%,60% { transform: translateX(-8px); } 40%,80% { transform: translateX(8px); } }
-@media (prefers-reduced-motion: reduce) { .gate-box.shake { animation: none; } }
-.bulk { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 22px; }
 
 .toast {
   position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(20px + env(safe-area-inset-bottom, 0px));
@@ -180,8 +168,6 @@ body.locked .wrap { visibility: hidden; }
 .modal { background: #150c0d; border: 1px solid var(--gold); border-radius: 6px; padding: 22px; max-width: 380px; width: 100%; box-shadow: 0 0 60px rgba(196,38,43,.3); }
 .modal p { margin: 0 0 18px; }
 .modal .row { margin: 0; justify-content: flex-end; }
-@media (max-width: 420px) { h1 { font-size: 20px; } .logo { width: 240px; } }
-@media (prefers-reduced-motion: reduce) { .toast, .chip, .btn { transition: none; } }
 </style>
 </head>
 <body class="locked">
@@ -219,9 +205,7 @@ body.locked .wrap { visibility: hidden; }
     <div class="row"><button class="btn block" id="gen">สร้างคีย์</button></div>
   </section>
 
-
   <div class="stats" id="stats"></div>
-
   <div class="tabs" role="tablist" id="tabs"></div>
   <div class="field" style="margin-bottom:12px"><input type="text" id="search" placeholder="ค้นหาคีย์หรือหมายเหตุ" aria-label="ค้นหา"></div>
   <div id="list"></div>
@@ -256,7 +240,6 @@ body.locked .wrap { visibility: hidden; }
   function $(id) { return document.getElementById(id); }
   function nowMs() { return Date.now() + offset; }
 
-  // เชื่อมต่อ API กับ server.js จริงโดยตรง (เอาตัวจำลองออกแล้ว)
   function api(method, path, body) {
     return fetch(path, {
       method: method,
@@ -271,7 +254,6 @@ body.locked .wrap { visibility: hidden; }
     }).catch(function () { return { ok: false, msg: "เชื่อมต่อเซิร์ฟเวอร์ไม่ได้", _s: 0 }; });
   }
 
-  // ---------- helpers ----------
   function status(k, now) { if (!k.days) return "permanent"; return now >= k.expiresAt ? "expired" : "active"; }
   function fmt(ts) { return new Date(ts).toLocaleString("th-TH", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) + " น."; }
   function dur(ms) {
@@ -305,7 +287,6 @@ body.locked .wrap { visibility: hidden; }
     if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(function () { toast("คัดลอกแล้ว"); }, fb); else fb();
   }
 
-  // ---------- data ----------
   function load() {
     return api("GET", "/api/keys").then(function (j) {
       if (!j.ok) { if (j._s !== 401) toast(j.msg || "โหลดข้อมูลไม่สำเร็จ"); return; }
@@ -386,39 +367,26 @@ body.locked .wrap { visibility: hidden; }
     var a = b.dataset.a;
     if (a === "copy") copy(k.key);
     else if (a === "del") confirmBox("ลบคีย์ " + k.key + " ?", function () { act("DELETE", "/api/keys/" + id, "ลบคีย์แล้ว"); });
-    else if (a === "unbind") confirmBox("รีเซ็ตล็อก: ไฟล์คีย์ในเครื่องผู้เล่นจะใช้ไม่ได้ และสคริปต์จะให้ใส่คีย์ใหม่ (ผูกเครื่องใหม่ได้)", function () { act("POST", "/api/keys/" + id + "/reset-lock", "รีเซ็ตล็อกแล้ว"); });
-    else if (a === "reset") confirmBox("รีเซ็ตเวลาคีย์นี้ให้เริ่มนับ " + k.days + " วัน ใหม่จากตอนนี้?", function () { act("POST", "/api/keys/" + id + "/reset-time", "รีเซ็ตเวลาแล้ว"); });
+    else if (a === "unbind") confirmBox("รีเซ็ตล็อกเครื่อง?", function () { act("POST", "/api/keys/" + id + "/reset-lock", "รีเซ็ตล็อกแล้ว"); });
+    else if (a === "reset") confirmBox("รีเซ็ตเวลาคีย์?", function () { act("POST", "/api/keys/" + id + "/reset-time", "รีเซ็ตเวลาแล้ว"); });
   });
   $("delExpired").onclick = function () {
     var n = counts(nowMs()).expired; if (!n) return toast("ไม่มีคีย์ที่หมดอายุ");
     confirmBox("ลบคีย์ที่หมดอายุทั้งหมด " + n + " คีย์?", function () { act("POST", "/api/keys/delete-expired", "ลบคีย์ที่หมดอายุแล้ว"); });
   };
   $("resetAll").onclick = function () {
-    confirmBox("รีเซ็ตระบบ: ลบคีย์ทั้งหมด ย้อนกลับไม่ได้", function () {
+    confirmBox("รีเซ็ตระบบ: ลบคีย์ทั้งหมด?", function () {
       filter = "all"; query = ""; selected = 1; $("search").value = ""; $("note").value = ""; $("qty").value = 1; renderChips();
       act("DELETE", "/api/keys", "รีเซ็ตระบบแล้ว");
     });
   };
 
-  setInterval(function () {
-    if (document.body.classList.contains("locked")) return;
-    var now = nowMs(), changed = false, cards = document.querySelectorAll(".key");
-    for (var i = 0; i < cards.length; i++) {
-      var el = cards[i], k = keys.filter(function (x) { return x.id === el.dataset.id; })[0];
-      if (!k) continue;
-      if (status(k, now) !== el.dataset.st) { changed = true; break; }
-      var left = el.querySelector(".left");
-      if (left) { left.textContent = dur(k.expiresAt - now); el.querySelector(".bar i").style.width = pct(k, now) + "%"; }
-    }
-    if (changed) render();
-  }, 1000);
-
-  // ---------- 2-layer login ----------
+  // ล็อกอิน 2 ชั้น
   var step = 0, ticket = null;
   $("gateLogo").src = document.querySelector(".logo").src;
   function showStep() {
     $("gTitle").textContent = "ด่านที่ " + (step + 1) + " จาก 2";
-    $("gHint").textContent = step ? "ใส่คีย์ชั้นที่สอง" : "ใส่คีย์ชั้นแรก";
+    $("gHint").textContent = step ? "ใส่คีย์ชั้นที่สอง (admin456)" : "ใส่คีย์ชั้นแรก (admin123)";
     $("gBtn").textContent = step ? "เข้าสู่ระบบ" : "ถัดไป";
     $("s2").className = step ? "on" : "";
     $("gIn").value = ""; $("gErr").textContent = ""; $("gIn").focus();
@@ -454,57 +422,6 @@ body.locked .wrap { visibility: hidden; }
 
   renderChips();
   if (TOKEN) { document.body.classList.remove("locked"); startLoading(); } else showStep();
-})();
-
-// sakura petals
-(function () {
-  var c = document.getElementById("sakura"), x = c.getContext("2d");
-  var W, H, petals = [], dpr = Math.min(window.devicePixelRatio || 1, 2);
-  var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  var COLORS = ["255,183,200", "255,208,220", "247,150,180", "255,225,232"];
-  function size() {
-    W = window.innerWidth; H = window.innerHeight;
-    c.width = W * dpr; c.height = H * dpr; x.setTransform(dpr, 0, 0, dpr, 0, 0);
-    var n = Math.round(Math.min(70, Math.max(26, W * H / 16000)));
-    while (petals.length < n) petals.push(make(true));
-    petals.length = n;
-  }
-  function make(anywhere) {
-    return {
-      x: Math.random() * W, y: anywhere ? Math.random() * H : -20,
-      s: 4.5 + Math.random() * 6, vy: 0.45 + Math.random() * 0.9, vx: 0.2 + Math.random() * 0.6,
-      sw: Math.random() * 6.28, swS: 0.01 + Math.random() * 0.02, rot: Math.random() * 6.28, rotS: (Math.random() - 0.5) * 0.04,
-      flip: Math.random() * 6.28, flipS: 0.02 + Math.random() * 0.03,
-      o: 0.5 + Math.random() * 0.4, col: COLORS[(Math.random() * COLORS.length) | 0]
-    };
-  }
-  function petal(p) {
-    var s = p.s;
-    x.save(); x.translate(p.x, p.y); x.rotate(p.rot); x.scale(1, 0.35 + Math.abs(Math.cos(p.flip)) * 0.65);
-    x.beginPath();
-    x.moveTo(0, s);
-    x.bezierCurveTo(-s * 1.1, s * 0.2, -s * 0.7, -s, -s * 0.14, -s * 0.9);
-    x.lineTo(0, -s * 0.66); x.lineTo(s * 0.14, -s * 0.9);
-    x.bezierCurveTo(s * 0.7, -s, s * 1.1, s * 0.2, 0, s);
-    x.closePath();
-    x.fillStyle = "rgba(" + p.col + "," + p.o + ")";
-    x.shadowColor = "rgba(255,150,180,.55)"; x.shadowBlur = 6;
-    x.fill(); x.restore();
-  }
-  function frame() {
-    x.clearRect(0, 0, W, H);
-    for (var i = 0; i < petals.length; i++) {
-      var p = petals[i];
-      if (!reduce) {
-        p.sw += p.swS; p.flip += p.flipS; p.rot += p.rotS;
-        p.y += p.vy; p.x += p.vx + Math.sin(p.sw) * 0.9;
-        if (p.y > H + 20 || p.x > W + 30) { petals[i] = make(false); petals[i].x = Math.random() * W * 0.9 - W * 0.1; continue; }
-      }
-      petal(p);
-    }
-    if (!reduce) requestAnimationFrame(frame);
-  }
-  size(); window.addEventListener("resize", size); frame();
 })();
 </script>
 </body>
